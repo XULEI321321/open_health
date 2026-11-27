@@ -434,6 +434,15 @@
                          Button { showProfile = true } label: {
                              Image(systemName: "person.crop.circle")
                                  .font(.system(size: 17)).foregroundStyle(Obs.ink2)
+@@ -1070,7 +1079,7 @@
+                         if let day = s.days.first {
+                             HStack(spacing: 9) {
+                                 ObsTag(displayedDayLabel(day), icon: "sun.max.fill")
+-                                    .fixedSize()
++                                    .lineLimit(1)
+                                 if displayedDayLabel(day) != day {
+                                     Text(String(day.suffix(5))).font(Obs.mono(11)).foregroundStyle(Obs.muted)
+                                 }
 @@ -1246,7 +1255,7 @@
          let info = Bundle.main.infoDictionary
          let short = info?["CFBundleShortVersionString"] as? String ?? "?"
@@ -443,6 +452,54 @@
          if let prefix { out = prefix + " · " + out }
          if let signed = Self.signedAt {
              out += " · built \(Self.stampFormat.string(from: signed))"
+--- a/apps/ios/OuraApp/Reports.swift
++++ b/apps/ios/OuraApp/Reports.swift
+@@ -1278,7 +1278,7 @@
+                 Text("\(formatted(biomarker.value)) \(unit)")
+                     .font(.subheadline.weight(.medium)).monospacedDigit()
+                     .foregroundStyle(biomarker.indicatesSymptoms ? Obs.alert : Obs.ink)
+-                    .fixedSize()
++                    .fixedSize(horizontal: false, vertical: true)
+             }
+             if biomarker.indicatesSymptoms {
+                 Text(change).font(.caption).foregroundStyle(Obs.alert)
+@@ -1420,16 +1420,19 @@
+                     .buttonStyle(.plain)
+                     .accessibilityLabel("Back")
+                     Text(day).font(Obs.mono(13, .medium)).foregroundStyle(Obs.ink)
+-                        .lineLimit(1).fixedSize()
++                        .lineLimit(1).minimumScaleFactor(0.75)
++                        .layoutPriority(-1)
+                     Spacer(minLength: 6)
+                     Picker("", selection: $tab) {
+                         ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                     }
+-                    .pickerStyle(.segmented).fixedSize()
++                    .pickerStyle(.segmented)
++                    .frame(maxWidth: 190)
+                     if let analysis { refreshButton(analysis) }
+                     exportMenu
+                 }
+                 .padding(.leading, 12).padding(.trailing, 14).padding(.vertical, 10)
++                .frame(maxWidth: .infinity)
+                 .overlay(alignment: .bottom) { Rectangle().fill(Obs.trace.opacity(0.3)).frame(height: 0.5) }
+ 
+                 ScrollView {
+@@ -1443,9 +1446,13 @@
+                         if tab == .sleep { SleepReport(s: analysis?.summary ?? s, day: day) }
+                         else { ActivityReport(s: analysis?.summary ?? s, day: day) }
+                     }
++                    .frame(maxWidth: .infinity, alignment: .leading)
+                     .padding(20).padding(.bottom, 60)
+                 }
+-            }
++                .frame(maxWidth: .infinity)
++            }
++            .frame(maxWidth: .infinity)
++            .clipped()
+         }
+         .toolbar(.hidden, for: .navigationBar)
+         .sheet(isPresented: Binding(get: { exportFile != nil }, set: { if !$0 { exportFile = nil } })) {
 --- a/apps/ios/OuraApp/Info.plist
 +++ b/apps/ios/OuraApp/Info.plist
 @@ -5,13 +5,13 @@
