@@ -621,6 +621,140 @@
      dependencies:
        - sdk: HealthKit.framework
        - framework: ../OuraCore.xcframework
+--- a/apps/ios/OuraApp/BLETransport.swift
++++ b/apps/ios/OuraApp/BLETransport.swift
+@@ -35,6 +35,7 @@
+ enum BLEError: Error, CustomStringConvertible {
+     case poweredOff, notFound, noWriteCharacteristic, disconnected, busy
+     case ringNotAdvertising(otherDevices: Int)
++    case encryptionInsufficient(characteristic: String)
+     /// carries the stage the attempt was in, so "timed out" says *what* never happened
+     /// (no advertisement seen vs GATT connect stalled vs subscriptions pending).
+     case timedOut(stage: String)
+@@ -42,6 +43,8 @@
+     var description: String {
+         switch self {
+         case .ringNotAdvertising(let count): return "no ring advertisement found (\(count) other Bluetooth devices detected)"
++        case .encryptionInsufficient(let characteristic):
++            return "ring requires an encrypted Bluetooth connection (characteristic …\(characteristic)); accept any iOS Bluetooth pairing prompt and retry"
+         case .poweredOff: return "Bluetooth is off or not authorized"
+         case .notFound: return "ring service/characteristics not found"
+         case .noWriteCharacteristic: return "no write characteristic (98ED0002)"
+@@ -96,6 +99,13 @@
+     private var writeCont: CheckedContinuation<Void, Error>?
+     private var connectTimeout: DispatchWorkItem?
+     private var pendingNotify = 0 // notify subscriptions still awaiting confirmation
++    private var notifyCharsForSubscription: [CBCharacteristic] = []
++    // The ring requires BLE link encryption before notification subscription. Initiate
++    // CoreBluetooth's security/bonding flow with a protected GATT read first; only
++    // subscribe after that operation succeeds.
++    private var securityBootstrapPending = false
++    private var securityBootstrapAttempts = 0
++    private let maxSecurityBootstrapAttempts = 3
+     private var poweredOn = false
+     // where the in-flight connect currently is, for the timeout error message.
+     private var stage = "waiting for Bluetooth to power on"
+@@ -400,23 +410,45 @@
+             dlog("ble", "no notify characteristics (98ED0003..0006)")
+             return finishConnect(.failure(BLEError.notFound))
+         }
++        // open_oura documents that Gen3 requires link encryption before notify
++        // subscription OR protocol writes. A read is not sufficient to guarantee that
++        // security negotiation starts, so issue the harmless firmware-info request
++        // (08 03 00 00 00) as a protected write-with-response first. CoreBluetooth owns
++        // the pairing UI/bond; subscribe only after the write is acknowledged.
++        notifyCharsForSubscription = notifyChars
++        securityBootstrapPending = true
++        securityBootstrapAttempts = 1
++        lock.lock(); stage = "initiating BLE link encryption/bonding"; lock.unlock()
++        dlog("ble", "initiating CoreBluetooth link-security negotiation via protected firmware-info write")
++        peripheral.writeValue(Data([0x08, 0x03, 0x00, 0x00, 0x00]),
++                              for: writeChar!, type: .withResponse)
++    }
++
++    private func beginNotifySubscriptions() {
++        guard !closed, let peripheral else { return }
+         // don't report "connected" until every notify subscription is confirmed —
+         // otherwise Rust can start syncing before inbound frames flow and miss the
+-        // ring's early responses. didUpdateNotificationStateFor finishes the connect.
++        // ring's early responses.
+         lock.lock()
+-        pendingNotify = notifyChars.count
+-        stage = "subscribing to notify characteristics"
++        pendingNotify = notifyCharsForSubscription.count
++        stage = "subscribing to notify characteristics after link security"
+         lock.unlock()
+-        for c in notifyChars { peripheral.setNotifyValue(true, for: c) }
++        for c in notifyCharsForSubscription { peripheral.setNotifyValue(true, for: c) }
+     }
+ 
+     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic,
+                     error: Error?) {
+         guard !closed, self.peripheral === peripheral else { return }
+         if let error {
+-            // a pairing/encryption demand surfaces here (e.g. "Authentication is
+-            // insufficient") — the single most diagnostic error on a keyed ring.
+-            dlog("ble", "subscribe FAILED on …\(characteristic.uuid.uuidString.prefix(8).lowercased()): \(error)")
++                let shortUUID = String(characteristic.uuid.uuidString.prefix(8)).lowercased()
++            let nsError = error as NSError
++            // Security negotiation should already have completed before subscriptions.
++            // If it has not, fail explicitly rather than retrying the same operation.
++            dlog("ble", "subscribe FAILED on …\(shortUUID): \(error)")
++            if nsError.domain == CBATTErrorDomain, nsError.code == 15 {
++                dlog("ble", "link encryption is still insufficient after the protected-write bootstrap; check iOS Bluetooth pairing/bond state")
++                return finishConnect(.failure(BLEError.encryptionInsufficient(characteristic: shortUUID)))
++            }
+             return finishConnect(.failure(error))
+         }
+         dlog("ble", "subscribed …\(characteristic.uuid.uuidString.prefix(8).lowercased())")
+@@ -430,6 +462,7 @@
+     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic,
+                     error: Error?) {
+         guard !closed, self.peripheral === peripheral else { return }
++
+         // drop the callback on a read/notify error — a stale payload must not be fed
+         // into the frame stream Rust drains as protocol responses.
+         guard error == nil, let v = characteristic.value else {
+@@ -497,6 +530,39 @@
+     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic,
+                     error: Error?) {
+         guard !closed, self.peripheral === peripheral else { return }
++
++        // This first write is deliberately a harmless firmware-info request used only
++        // to trigger/complete CoreBluetooth's BLE pairing and link-encryption flow.
++        // Its response is intentionally ignored because notifications are not enabled
++        // yet. Once the protected write is acknowledged, subscribe and start Rust auth.
++        if securityBootstrapPending, characteristic.uuid == RingUUID.write {
++            if let error {
++                let nsError = error as NSError
++                if nsError.domain == CBATTErrorDomain, nsError.code == 15,
++                   securityBootstrapAttempts < maxSecurityBootstrapAttempts {
++                    securityBootstrapAttempts += 1
++                    let attempt = securityBootstrapAttempts
++                    dlog("ble", "protected bootstrap write requires link encryption; allowing iOS security negotiation (attempt \(attempt)/\(maxSecurityBootstrapAttempts))")
++                    bleQueue.asyncAfter(deadline: .now() + 2.0) { [weak self, weak peripheral] in
++                        guard let self, let peripheral, !self.closed,
++                              self.peripheral === peripheral, self.securityBootstrapPending,
++                              let c = peripheral.services?.flatMap({ $0.characteristics ?? [] })
++                                .first(where: { $0.uuid == RingUUID.write }) else { return }
++                        peripheral.writeValue(Data([0x08, 0x03, 0x00, 0x00, 0x00]),
++                                              for: c, type: .withResponse)
++                    }
++                    return
++                }
++                securityBootstrapPending = false
++                dlog("ble", "BLE link-security bootstrap FAILED: \(error)")
++                return finishConnect(.failure(error))
++            }
++            securityBootstrapPending = false
++            dlog("ble", "protected bootstrap write acknowledged; subscribing to notify characteristics")
++            beginNotifySubscriptions()
++            return
++        }
++
+         if let error { dlog("ble", "write NAK: \(error)") }
+         finishWrite(error.map { .failure($0) } ?? .success(()))
+     }
 diff --git a/apps/ios/OuraApp/NightCurve.swift b/apps/ios/OuraApp/NightCurve.swift
 new file mode 100644
 --- /dev/null
