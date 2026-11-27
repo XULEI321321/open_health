@@ -59,3 +59,110 @@
          insight("Activity sessions", true, ""),
          insight("HRV / resting HR", true, ""),
          insight(
+--- a/crates/oura-summary/src/research_export.rs
++++ b/crates/oura-summary/src/research_export.rs
+@@ -24,7 +24,7 @@
+ pub const MARKER_KIND: &str = "research_marker";
+ 
+ /// Bumped whenever a column or a rule changes, and written into `manifest.json`.
+-pub const EXPORT_VERSION: u32 = 1;
++pub const EXPORT_VERSION: u32 = 2;
+ 
+ /// The streams a researcher can pick.
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+@@ -37,7 +37,8 @@
+     SleepMovement,
+     /// 30 s accelerometer summary, day and night: `motion_event` (0x47).
+     Motion,
+-    /// Raw SpO2 ratio and perfusion index: `spo2_r_pi_event`.
++    /// SpO2 samples: `r`/`perfusion_index` from `spo2_r_pi_event` (0x8b), or
++    /// firmware percentages from `spo2_event` (0x6f) on Gen3/Horizon rings.
+     Spo2Raw,
+     /// Skin temperature: `temp_event` and `sleep_temp_event`.
+     SkinTemperature,
+@@ -79,7 +80,7 @@
+             Stream::RrQuality => "utc_time,local_time,unix_s,rr_ms,hr_bpm,quality,packet_unix_s,beat_in_packet,clock_source",
+             Stream::SleepMovement => "utc_time,local_time,unix_s,mad_mean_g,mad_max_g,mad_iqr_g,finger_angle_mean,finger_angle_max,finger_angle_iqr,clock_source",
+             Stream::Motion => "utc_time,local_time,unix_s,avg_x,avg_y,avg_z,motion_seconds,low_intensity,high_intensity,orientation,clock_source",
+-            Stream::Spo2Raw => "utc_time,local_time,unix_s,sample_in_packet,r_ratio,perfusion_index,clock_source",
++            Stream::Spo2Raw => "utc_time,local_time,unix_s,sample_in_packet,r_ratio,perfusion_index,spo2_percent,source,clock_source",
+             Stream::SkinTemperature => "utc_time,local_time,unix_s,source,sample_in_packet,temp_c,clock_source",
+         }
+     }
+@@ -214,11 +215,21 @@
+                         f("low_intensity"), f("high_intensity"), f("orientation")
+                     ));
+                 }
++                Stream::Spo2Raw if name == "spo2_event" => {
++                    // Gen3 / Horizon rings emit the firmware's final percentage
++                    // (event 0x6f) instead of the R/PI pair (event 0x8b). Keep the
++                    // raw value verbatim: research export never clamps or scores.
++                    for (i, p) in floats(&v["spo2_percent"]).iter().enumerate() {
++                        push(&mut rows, stream, at.unix, at.source,
++                             format!("{i},,,{p},spo2_event"));
++                    }
++                }
+                 Stream::Spo2Raw => {
+                     let r = floats(&v["r"]);
+                     let pi = floats(&v["perfusion_index"]);
+                     for (i, (r, pi)) in r.iter().zip(&pi).enumerate() {
+-                        push(&mut rows, stream, at.unix, at.source, format!("{i},{r},{pi}"));
++                        push(&mut rows, stream, at.unix, at.source,
++                             format!("{i},{r},{pi},,spo2_r_pi_event"));
+                     }
+                 }
+                 Stream::SkinTemperature => {
+@@ -371,7 +382,7 @@
+         "green_ibi_quality_event" => Stream::RrQuality,
+         "sleep_acm_period" => Stream::SleepMovement,
+         "motion_event" => Stream::Motion,
+-        "spo2_r_pi_event" => Stream::Spo2Raw,
++        "spo2_r_pi_event" | "spo2_event" => Stream::Spo2Raw,
+         "temp_event" | "sleep_temp_event" => Stream::SkinTemperature,
+         _ => return None,
+     })
+@@ -493,9 +504,15 @@
+ 1/1000 g, so the magnitude is ~1000 at rest); gives the hand's orientation.\n\
+ `motion_seconds`: seconds of the 30 with movement. `low_intensity`,\n\
+ `high_intensity`: ring movement counters. `orientation`: ring orientation code.\n\n\
+-## spo2_raw.csv (event spo2_r_pi)\n\n\
+-`r_ratio`: red/infrared ratio that Oura's SpO2 curve uses (not a percentage).\n\
+-`perfusion_index`: optical perfusion. Several samples share one packet timestamp.\n\n\
++## spo2_raw.csv (events spo2_r_pi and spo2_event)\n\n\
++`source` says which event produced the row:\n\
++- `spo2_r_pi_event` (0x8b): `r_ratio` is the red/infrared ratio Oura's SpO2\n\
++  curve uses (not a percentage), `perfusion_index` is optical perfusion;\n\
++  `spo2_percent` is empty.\n\
++- `spo2_event` (0x6f, Gen3 / Horizon rings): `spo2_percent` is the ring's own\n\
++  computed blood oxygen in percent; `r_ratio` and `perfusion_index` are empty.\n\
++  Values are exported verbatim - the firmware occasionally reports >100.\n\
++Several samples share one packet timestamp; `sample_in_packet` is their index.\n\n\
+ ## skin_temperature.csv\n\n\
+ `source` = `temp_event` (about every minute, several sensors per row as\n\
+ `sample_in_packet`) or `sleep_temp_event` (during sleep). Degrees Celsius.\n\n\
+--- a/apps/ios/OuraApp/ResearchExport.swift
++++ b/apps/ios/OuraApp/ResearchExport.swift
+@@ -1,6 +1,6 @@
+ import SwiftUI
+ 
+-// Research export: the ring's raw streams (every beat, 30 s movement, SpO2 ratio, skin
++// Research export: the ring's raw streams (every beat, 30 s movement, SpO2 samples, skin
+ // temperature) for a chosen window, as a ZIP of CSVs on the corrected clock. Built by the
+ // shared Rust `oura_summary::research_export`, so a window gives the same bytes as the web
+ // dashboard's "Research export" panel and `oura research-export`.
+@@ -15,13 +15,13 @@
+         Option(id: "rr_quality", title: "Beats with quality flag", detail: "A second beat series, recorded intermittently"),
+         Option(id: "sleep_movement_30s", title: "Movement during sleep", detail: "Accelerometer statistics per 30 s window"),
+         Option(id: "motion_30s", title: "Movement and posture", detail: "Mean x/y/z and seconds moving per 30 s, day and night"),
+-        Option(id: "spo2_raw", title: "SpO2 raw ratio", detail: "Red/infrared ratio and perfusion index"),
++        Option(id: "spo2_raw", title: "SpO2 samples", detail: "R ratio / perfusion, or blood oxygen % on newer rings"),
+         Option(id: "skin_temperature", title: "Skin temperature", detail: "Every reading, in °C"),
+     ]
+ 
+     @State private var start: Date = Self.defaultStart()
+     @State private var end: Date = Self.defaultEnd()
+-    @State private var selected: Set<String> = ["rr_intervals", "sleep_movement_30s", "motion_30s"]
++    @State private var selected: Set<String> = ["rr_intervals", "sleep_movement_30s", "motion_30s", "spo2_raw"]
+     @State private var working = false
+     @State private var message: String?
+     @State private var file: URL?
