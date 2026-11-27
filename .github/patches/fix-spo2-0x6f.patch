@@ -454,7 +454,17 @@
              out += " · built \(Self.stampFormat.string(from: signed))"
 --- a/apps/ios/OuraApp/Reports.swift
 +++ b/apps/ios/OuraApp/Reports.swift
-@@ -1278,7 +1278,7 @@
+@@ -704,7 +704,9 @@
+     var body: some View {
+         VStack(alignment: .leading, spacing: 3) {
+             Text(value).font(Obs.mono(20, .medium)).foregroundStyle(accent).monospacedDigit()
++                .lineLimit(1).minimumScaleFactor(0.55)
+             Text(caption.uppercased()).font(Obs.mono(9)).tracking(1.2).foregroundStyle(Obs.ink2)
++                .lineLimit(1).minimumScaleFactor(0.65)
+         }
+         .frame(maxWidth: .infinity, alignment: .leading)
+     }
+@@ -1278,7 +1280,7 @@
                  Text("\(formatted(biomarker.value)) \(unit)")
                      .font(.subheadline.weight(.medium)).monospacedDigit()
                      .foregroundStyle(biomarker.indicatesSymptoms ? Obs.alert : Obs.ink)
@@ -463,7 +473,7 @@
              }
              if biomarker.indicatesSymptoms {
                  Text(change).font(.caption).foregroundStyle(Obs.alert)
-@@ -1407,46 +1407,58 @@
+@@ -1407,46 +1409,58 @@
      typealias Tab = DayAnalysisKind
  
      var body: some View {
