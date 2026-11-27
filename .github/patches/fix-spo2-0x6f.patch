@@ -255,7 +255,7 @@
      static func tone(delta: Double?, goodWhenPositive: Bool = true, threshold: Double = 8) -> Color {
          guard let d = delta else { return chart }
          let isGood = d >= 0 ? goodWhenPositive : !goodWhenPositive
-@@ -81,6 +89,75 @@
+@@ -81,6 +89,90 @@
      }
  }
  
@@ -266,26 +266,40 @@
 +    @State private var breathing = false
 +
 +    var body: some View {
++        GeometryReader { geo in
++            backdrop(size: geo.size)
++        }
++        .ignoresSafeArea()
++        .onAppear { breathing = true }
++    }
++
++    /// Force every layer to the exact proposed size. An `aspectRatio(.fill)`
++    /// image otherwise reports an ideal width larger than the screen, which
++    /// makes the enclosing ZStack grow and centre-crop the whole page.
++    private func backdrop(size: CGSize) -> some View {
 +        ZStack(alignment: .bottom) {
 +            LinearGradient(
 +                colors: scheme == .dark
 +                    ? [Obs.paper, Obs.dusk.opacity(0.16), Obs.gold.opacity(0.05)]
 +                    : [Obs.paper, Obs.dusk.opacity(0.10), Obs.gold.opacity(0.06)],
 +                startPoint: .top, endPoint: .bottom)
-+            photoLayer("city_day", show: scheme == .light, strength: 0.34)
-+            photoLayer("city_night", show: scheme == .dark, strength: 0.52)
++                .frame(width: size.width, height: size.height)
++            photoLayer("city_day", show: scheme == .light, strength: 0.34, size: size)
++            photoLayer("city_night", show: scheme == .dark, strength: 0.52, size: size)
 +        }
-+        .ignoresSafeArea()
-+        .onAppear { breathing = true }
++        .frame(width: size.width, height: size.height)
++        .clipped()
 +    }
 +
-+    private func photoLayer(_ name: String, show: Bool, strength: Double) -> some View {
++    private func photoLayer(_ name: String, show: Bool, strength: Double, size: CGSize) -> some View {
 +        Group {
 +            if let url = Bundle.main.url(forResource: name, withExtension: "jpg"),
 +               let ui = UIImage(contentsOfFile: url.path) {
 +                Image(uiImage: ui)
 +                    .resizable()
 +                    .aspectRatio(contentMode: .fill)
++                    .frame(width: size.width, height: size.height)
++                    .clipped()
 +                    .scaleEffect(breathing ? 1.05 : 1.0)
 +                    .offset(y: breathing ? -9 : 9)
 +                    .opacity(show ? strength : 0)
@@ -294,8 +308,9 @@
 +                               value: breathing)
 +            }
 +        }
-+        .allowsHitTesting(false)
++        .frame(width: size.width, height: size.height)
 +        .clipped()
++        .allowsHitTesting(false)
 +    }
 +}
 +
@@ -331,7 +346,7 @@
  struct ObsTag: View {
      let text: String
      var icon: String? = nil
-@@ -88,19 +165,15 @@
+@@ -88,19 +180,15 @@
      var body: some View {
          HStack(spacing: 7) {
              if let icon {
@@ -358,7 +373,7 @@
  struct ObsRule: View {
      var body: some View {
          Rectangle().fill(Obs.rule).frame(height: 1)
-@@ -110,20 +183,26 @@
+@@ -110,20 +198,26 @@
  
  struct ObsCard: ViewModifier {
      var padding: CGFloat = 18
