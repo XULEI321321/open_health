@@ -255,7 +255,7 @@
      static func tone(delta: Double?, goodWhenPositive: Bool = true, threshold: Double = 8) -> Color {
          guard let d = delta else { return chart }
          let isGood = d >= 0 ? goodWhenPositive : !goodWhenPositive
-@@ -81,6 +89,90 @@
+@@ -81,6 +89,91 @@
      }
  }
  
@@ -270,6 +270,7 @@
 +            backdrop(size: geo.size)
 +        }
 +        .ignoresSafeArea()
++        .allowsHitTesting(false)
 +        .onAppear { breathing = true }
 +    }
 +
@@ -346,7 +347,7 @@
  struct ObsTag: View {
      let text: String
      var icon: String? = nil
-@@ -88,19 +180,15 @@
+@@ -88,19 +181,15 @@
      var body: some View {
          HStack(spacing: 7) {
              if let icon {
@@ -373,7 +374,7 @@
  struct ObsRule: View {
      var body: some View {
          Rectangle().fill(Obs.rule).frame(height: 1)
-@@ -110,20 +198,26 @@
+@@ -110,20 +199,26 @@
  
  struct ObsCard: ViewModifier {
      var padding: CGFloat = 18
@@ -488,7 +489,7 @@
              }
              if biomarker.indicatesSymptoms {
                  Text(change).font(.caption).foregroundStyle(Obs.alert)
-@@ -1407,46 +1409,58 @@
+@@ -1407,45 +1409,57 @@
      typealias Tab = DayAnalysisKind
  
      var body: some View {
@@ -507,9 +508,9 @@
 +                VStack(spacing: 0) {
 +                    HStack(spacing: 10) {
 +                        Button { dismiss() } label: {
-+                            Image(systemName: "chevron.left").font(.system(size: 15, weight: .semibold))
++                            Image(systemName: "chevron.left").font(.system(size: 17, weight: .semibold))
 +                                .foregroundStyle(Obs.ink2)
-+                                .frame(width: 34, height: 34)
++                                .frame(width: 44, height: 44)
 +                                .contentShape(Rectangle())
 +                        }
 +                        .buttonStyle(.plain)
@@ -534,7 +535,9 @@
 -                    Picker("", selection: $tab) {
 -                        ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
 +                    .padding(.leading, 12).padding(.trailing, 14).padding(.vertical, 10)
++                    .padding(.top, 8)
 +                    .frame(width: screen.size.width)
++                    .zIndex(1)
 +                    .overlay(alignment: .bottom) { Rectangle().fill(Obs.trace.opacity(0.3)).frame(height: 0.5) }
 +
 +                    ScrollView {
@@ -572,19 +575,15 @@
 -                    .padding(20).padding(.bottom, 60)
 -                }
 -            }
--        }
 +                    .frame(width: screen.size.width)
 +                }
 +                .frame(width: screen.size.width, height: screen.size.height)
 +                .clipped()
 +            }
 +            .frame(width: screen.size.width, height: screen.size.height)
-+            .ignoresSafeArea()
-+        }
-+        .ignoresSafeArea()
+         }
          .toolbar(.hidden, for: .navigationBar)
          .sheet(isPresented: Binding(get: { exportFile != nil }, set: { if !$0 { exportFile = nil } })) {
-             if let exportFile { DiagnosticsShare(url: exportFile) }
 --- a/apps/ios/OuraApp/Info.plist
 +++ b/apps/ios/OuraApp/Info.plist
 @@ -5,13 +5,13 @@
