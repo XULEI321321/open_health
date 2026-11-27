@@ -166,3 +166,840 @@
      @State private var working = false
      @State private var message: String?
      @State private var file: URL?
+--- a/apps/ios/OuraApp/Theme.swift
++++ b/apps/ios/OuraApp/Theme.swift
+@@ -1,9 +1,12 @@
++import Foundation
+ import SwiftUI
+ import UIKit
+ 
+-// thomas.md Quiet Ink: warm paper, serif titles, sans UI, mono numbers.
+-// Color is semantic, not decorative: gray when nothing is going on, green when
+-// something is genuinely good, orange/red when there is a problem.
++// Xi'an Bell Tower (night / dark mode) and Tianjin Eye (day / light mode).
++//
++// The two skylines are drawn entirely in code with Canvas + Path: no image
++// asset, no third-party artwork, no logo. They sit behind the data as a faint
++// watermark, so readability and the health colour semantics are unchanged.
+ 
+ enum Obs {
+     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+@@ -17,21 +20,27 @@
+         })
+     }
+ 
+-    // Paper / ink — same values as thomas.md.
+-    static let paper = adaptive(light: 0xfbfaf6, dark: 0x131110)
+-    static let ink = adaptive(light: 0x26231e, dark: 0xefebe2)
+-    static let ink2 = adaptive(light: 0x57534b, dark: 0xcfc9bf)
+-    static let muted = adaptive(light: 0x6e695f, dark: 0xa8a195)
+-    static let link = adaptive(light: 0x2e2b26, dark: 0xe3ddd2)
+-    static let rule = adaptive(light: 0xe7e3da, dark: 0x2c2925)
+-
+-    // Diagrams sit in the same ink family. Status uses the investing-post green/orange.
+-    static let chart = adaptive(light: 0x6e695f, dark: 0xa8a195)
+-    static let good = adaptive(light: 0x1baf7a, dark: 0x2ec48c)
+-    static let bad = adaptive(light: 0xeb6834, dark: 0xe07a4a)
+-    static let alert = adaptive(light: 0xc4472c, dark: 0xe06a4f)
+-
+-    // Back-compat names. `teal` is the quiet chart color; `yellow` is a problem.
++    // Rice paper / night ink.
++    static let paper = adaptive(light: 0xfaf4e6, dark: 0x141b24)
++    static let ink = adaptive(light: 0x2b2f36, dark: 0xf2ead9)
++    static let ink2 = adaptive(light: 0x5b626b, dark: 0xc3c9cf)
++    static let muted = adaptive(light: 0x848b94, dark: 0x8d959e)
++    static let link = adaptive(light: 0x2e5a50, dark: 0x7fb8a8)
++    static let rule = adaptive(light: 0xe4d9bf, dark: 0x2c3640)
++
++    // Bell Tower: vermilion wood, grey brick, green glaze, gilt finial, dusk.
++    static let vermilion = adaptive(light: 0xb23a2e, dark: 0xe0705e)
++    static let brick = adaptive(light: 0x6b6257, dark: 0xa79a88)
++    static let glaze = adaptive(light: 0x2e5a50, dark: 0x4f8c7d)
++    static let gold = adaptive(light: 0xc79a3c, dark: 0xe2bc63)
++    static let dusk = adaptive(light: 0x8a94a0, dark: 0x3f5163)
++
++    // Semantics: ochre is deliberately distinct from the decorative vermilion.
++    static let chart = adaptive(light: 0x2e5a50, dark: 0x5f9e8d)
++    static let good = adaptive(light: 0x159a6a, dark: 0x35c48e)
++    static let bad = adaptive(light: 0xd9742b, dark: 0xee9347)
++    static let alert = adaptive(light: 0xb22f26, dark: 0xe05a4a)
++
+     static var teal: Color { chart }
+     static var yellow: Color { bad }
+     static var warn: Color { bad }
+@@ -40,19 +49,23 @@
+     static var baseLow: Color { paper }
+     static var trace: Color { rule }
+ 
+-    static var canvas: some View { paper.ignoresSafeArea() }
+-
+-    // Sleep stages keep distinct hues (deep / light / REM / wake). Other charts
+-    // stay gray unless a value is actually good or a problem.
+-    static let deep = adaptive(light: 0x104281, dark: 0x5598e7)
+-    static let light = adaptive(light: 0x6da7ec, dark: 0x9ec5f4)
+-    static let rem = adaptive(light: 0x1baf7a, dark: 0x2ec48c)
+-    static let wake = adaptive(light: 0xeda100, dark: 0xeda100)
++    /// The app backdrop: a paper/dusk wash plus the skyline that matches the
++    /// current appearance. Light = Tianjin Eye by day, dark = Bell Tower at night.
++    static var canvas: some View { ObsBackdrop() }
++
++    static var aura: LinearGradient {
++        LinearGradient(colors: [vermilion, gold, glaze],
++                       startPoint: .leading, endPoint: .trailing)
++    }
++
++    static let deep = adaptive(light: 0x244a58, dark: 0x5a9bb5)
++    static let light = adaptive(light: 0x7fa5a8, dark: 0x9dc4c8)
++    static let rem = adaptive(light: 0xd3a344, dark: 0xe6bd66)
++    static let wake = adaptive(light: 0xc05a3a, dark: 0xdd7d55)
+     static func stage(_ s: Int) -> Color {
+         switch s { case 1: return deep; case 2: return light; case 3: return rem; default: return wake }
+     }
+ 
+-    /// Color a delta only when it is large enough to be worth noticing.
+     static func tone(delta: Double?, goodWhenPositive: Bool = true, threshold: Double = 8) -> Color {
+         guard let d = delta else { return chart }
+         let isGood = d >= 0 ? goodWhenPositive : !goodWhenPositive
+@@ -81,6 +94,184 @@
+     }
+ }
+ 
++// MARK: - Backdrop
++
++struct ObsBackdrop: View {
++    @Environment(\.colorScheme) private var scheme
++
++    var body: some View {
++        ZStack(alignment: .bottom) {
++            LinearGradient(
++                colors: scheme == .dark
++                    ? [Obs.paper, Obs.dusk.opacity(0.16), Obs.gold.opacity(0.05)]
++                    : [Obs.paper, Obs.dusk.opacity(0.10), Obs.gold.opacity(0.06)],
++                startPoint: .top, endPoint: .bottom)
++            Group {
++                if scheme == .dark { BellTowerNight() } else { TianjinEyeDay() }
++            }
++            .opacity(scheme == .dark ? 0.46 : 0.24)
++            .allowsHitTesting(false)
++        }
++        .ignoresSafeArea()
++    }
++}
++
++/// Tianjin Eye over the Yongle Bridge, in daylight. Drawn from primitives.
++private struct TianjinEyeDay: View {
++    var body: some View {
++        Canvas { ctx, size in
++            let w = size.width, h = size.height
++            let cx = w * 0.62, cy = h * 0.70
++            let r = min(w * 0.30, h * 0.20)
++            let line = Obs.dusk.opacity(0.75)
++            let glass = Obs.glaze.opacity(0.65)
++
++            // Hai River ripples.
++            for i in 0..<6 {
++                let y = h * 0.87 + CGFloat(i) * h * 0.021
++                var p = Path()
++                p.move(to: CGPoint(x: 0, y: y))
++                p.addLine(to: CGPoint(x: w, y: y))
++                ctx.stroke(p, with: .color(glass.opacity(0.30)),
++                           style: StrokeStyle(lineWidth: 1))
++            }
++
++            // Bridge deck and piers.
++            var deck = Path()
++            deck.move(to: CGPoint(x: 0, y: h * 0.845))
++            deck.addLine(to: CGPoint(x: w, y: h * 0.845))
++            ctx.stroke(deck, with: .color(line), style: StrokeStyle(lineWidth: 2))
++            for px in [w * 0.16, w * 0.84] {
++                var pier = Path()
++                pier.move(to: CGPoint(x: px, y: h * 0.845))
++                pier.addLine(to: CGPoint(x: px, y: h * 0.95))
++                ctx.stroke(pier, with: .color(line), style: StrokeStyle(lineWidth: 3))
++            }
++
++            // Wheel: double rim, spokes, cabins, hub.
++            ctx.stroke(Path(ellipseIn: CGRect(x: cx - r, y: cy - r,
++                                              width: r * 2, height: r * 2)),
++                       with: .color(line), style: StrokeStyle(lineWidth: 2))
++            ctx.stroke(Path(ellipseIn: CGRect(x: cx - r * 0.86, y: cy - r * 0.86,
++                                              width: r * 1.72, height: r * 1.72)),
++                       with: .color(glass), style: StrokeStyle(lineWidth: 1))
++            let n = 24
++            for i in 0..<n {
++                let a = Double(i) * 2 * Double.pi / Double(n) - Double.pi / 2
++                let ex = cx + CGFloat(cos(a)) * r
++                let ey = cy + CGFloat(sin(a)) * r
++                var spoke = Path()
++                spoke.move(to: CGPoint(x: cx, y: cy))
++                spoke.addLine(to: CGPoint(x: ex, y: ey))
++                ctx.stroke(spoke, with: .color(glass.opacity(0.65)),
++                           style: StrokeStyle(lineWidth: 0.8))
++                ctx.fill(Path(ellipseIn: CGRect(x: ex - 2.4, y: ey - 2.4,
++                                                width: 4.8, height: 4.8)),
++                         with: .color(Obs.vermilion.opacity(0.75)))
++            }
++            ctx.fill(Path(ellipseIn: CGRect(x: cx - 5, y: cy - 5,
++                                            width: 10, height: 10)),
++                     with: .color(Obs.gold))
++            for sgn in [-1, 1] {
++                var leg = Path()
++                leg.move(to: CGPoint(x: cx, y: cy))
++                leg.addLine(to: CGPoint(x: cx + CGFloat(sgn) * r * 0.58, y: h * 0.845))
++                ctx.stroke(leg, with: .color(line), style: StrokeStyle(lineWidth: 2))
++            }
++        }
++    }
++}
++
++/// Xi'an Bell Tower at night: three glazed eaves, brick base, gilt finial,
++/// lit outline, moon and a few stars.
++private struct BellTowerNight: View {
++    var body: some View {
++        Canvas { ctx, size in
++            let w = size.width, h = size.height
++            let cx = w * 0.50
++
++            ctx.fill(Path(ellipseIn: CGRect(x: w * 0.78, y: h * 0.14,
++                                            width: 26, height: 26)),
++                     with: .color(Obs.gold.opacity(0.9)))
++            let stars: [(CGFloat, CGFloat)] = [
++                (0.10, 0.13), (0.22, 0.22), (0.34, 0.11),
++                (0.60, 0.20), (0.90, 0.28), (0.70, 0.09), (0.45, 0.17)
++            ]
++            for (fx, fy) in stars {
++                ctx.fill(Path(ellipseIn: CGRect(x: w * fx, y: h * fy,
++                                                width: 2.6, height: 2.6)),
++                         with: .color(Obs.gold.opacity(0.8)))
++            }
++
++            var ground = Path()
++            ground.move(to: CGPoint(x: 0, y: h * 0.92))
++            ground.addLine(to: CGPoint(x: w, y: h * 0.92))
++            ctx.stroke(ground, with: .color(Obs.gold.opacity(0.35)),
++                       style: StrokeStyle(lineWidth: 1.5))
++
++            var y = h * 0.92
++            func rect(_ width: CGFloat, _ height: CGFloat, _ fill: Color) {
++                var p = Path()
++                p.addRect(CGRect(x: cx - width / 2, y: y - height,
++                                 width: width, height: height))
++                ctx.fill(p, with: .color(fill))
++                y -= height
++            }
++            func eave(_ width: CGFloat, _ height: CGFloat) {
++                var p = Path()
++                p.move(to: CGPoint(x: cx - width / 2, y: y))
++                p.addLine(to: CGPoint(x: cx - width * 0.36, y: y - height))
++                p.addLine(to: CGPoint(x: cx + width * 0.36, y: y - height))
++                p.addLine(to: CGPoint(x: cx + width / 2, y: y))
++                p.closeSubpath()
++                ctx.fill(p, with: .color(Obs.glaze))
++                ctx.stroke(p, with: .color(Obs.gold.opacity(0.75)),
++                           style: StrokeStyle(lineWidth: 1))
++                y -= height
++            }
++
++            rect(w * 0.60, h * 0.055, Obs.brick.opacity(0.92))
++            eave(w * 0.96, h * 0.075)
++            rect(w * 0.40, h * 0.055, Obs.vermilion.opacity(0.85))
++            eave(w * 0.80, h * 0.070)
++            rect(w * 0.29, h * 0.050, Obs.vermilion.opacity(0.85))
++            eave(w * 0.62, h * 0.065)
++            ctx.fill(Path(ellipseIn: CGRect(x: cx - 5, y: y - 11,
++                                            width: 10, height: 10)),
++                     with: .color(Obs.gold))
++        }
++    }
++}
++
++/// Small geometric Bell Tower badge used next to section titles.
++struct ObsBellTower: View {
++    var size: CGFloat = 22
++    var body: some View {
++        VStack(spacing: 0) {
++            Circle().fill(Obs.gold).frame(width: size * 0.10, height: size * 0.10)
++            eave(width: size * 0.70, height: size * 0.13)
++            Rectangle().fill(Obs.vermilion.opacity(0.88))
++                .frame(width: size * 0.38, height: size * 0.11)
++            eave(width: size * 0.86, height: size * 0.14)
++            Rectangle().fill(Obs.vermilion.opacity(0.88))
++                .frame(width: size * 0.52, height: size * 0.12)
++            eave(width: size, height: size * 0.15)
++            Rectangle().fill(Obs.brick).frame(width: size * 0.76, height: size * 0.10)
++        }
++        .frame(width: size, height: size)
++    }
++    private func eave(width: CGFloat, height: CGFloat) -> some View {
++        Path { p in
++            p.move(to: CGPoint(x: 0, y: height))
++            p.line(to: CGPoint(x: width * 0.14, y: 0))
++            p.line(to: CGPoint(x: width * 0.86, y: 0))
++            p.line(to: CGPoint(x: width, y: height))
++            p.closeSubpath()
++        }
++        .fill(Obs.glaze)
++    }
++}
++
+ struct ObsTag: View {
+     let text: String
+     var icon: String? = nil
+@@ -88,19 +279,15 @@
+     var body: some View {
+         HStack(spacing: 7) {
+             if let icon {
+-                Image(systemName: icon)
+-                    .font(.system(size: 11, weight: .medium))
++                Image(systemName: icon).font(.system(size: 11, weight: .medium))
+                     .foregroundStyle(Obs.muted)
+             }
+-            Text(text.uppercased())
+-                .font(Obs.mono(11, .medium))
+-                .tracking(1.6)
+-                .foregroundStyle(Obs.muted)
+-        }
+-    }
+-}
+-
+-/// Hairline between home sections — the thomas.md rule, with air on both sides.
++            Text(text.uppercased()).font(Obs.mono(11, .medium))
++                .tracking(1.6).foregroundStyle(Obs.muted)
++        }
++    }
++}
++
+ struct ObsRule: View {
+     var body: some View {
+         Rectangle().fill(Obs.rule).frame(height: 1)
+@@ -110,20 +297,26 @@
+ 
+ struct ObsCard: ViewModifier {
+     var padding: CGFloat = 18
+-    var radius: CGFloat = 10
++    var radius: CGFloat = 14
+     func body(content: Content) -> some View {
+         content
+             .padding(padding)
+-            .background(Obs.paper, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
++            .background(Obs.paper.opacity(0.94),
++                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+             .overlay(
+                 RoundedRectangle(cornerRadius: radius, style: .continuous)
+-                    .strokeBorder(Obs.rule, lineWidth: 1)
++                    .strokeBorder(
++                        LinearGradient(colors: [Obs.vermilion.opacity(0.38),
++                                                Obs.glaze.opacity(0.30)],
++                                       startPoint: .topLeading, endPoint: .bottomTrailing),
++                        lineWidth: 1.1)
+             )
++            .shadow(color: Obs.glaze.opacity(0.08), radius: 7, x: 0, y: 2)
+     }
+ }
+ 
+ extension View {
+-    func obsCard(padding: CGFloat = 18, radius: CGFloat = 10) -> some View {
++    func obsCard(padding: CGFloat = 18, radius: CGFloat = 14) -> some View {
+         modifier(ObsCard(padding: padding, radius: radius))
+     }
+ }
+--- a/apps/ios/OuraApp/OuraApp.swift
++++ b/apps/ios/OuraApp/OuraApp.swift
+@@ -808,6 +808,7 @@
+     @State private var showSync = false
+     @State private var showProfile = false
+     @State private var showSleepDebt = false
++    @State private var showNightCurve = false
+     @State private var vital: VitalKind?
+     @State private var loadGeneration = 0
+     @State private var isRefreshingSummary = false
+@@ -860,6 +861,7 @@
+         .sheet(isPresented: $showProfile) { ProfileSettingsView(profile: s?.profile, onSaved: refreshDerivedData) }
+         .sheet(isPresented: $showSleepDebt) { if let debt = s?.sleepDebt { SleepDebtDetail(debt: debt) } }
+         .sheet(item: $vital) { kind in if let s { VitalTrendView(s: s, kind: kind) } }
++        .sheet(isPresented: $showNightCurve) { NightCurveView() }
+         #if TORCH
+         .environment(\.dayAnalysis, DayAnalysisContext(summary: s,
+             isBusy: isRefreshingSummary || ring.busy, refresh: refreshDayAnalysis))
+@@ -1046,9 +1048,16 @@
+         ScrollView {
+                 VStack(alignment: .leading, spacing: 20) {
+                     HStack(alignment: .firstTextBaseline, spacing: 8) {
++                        ObsBellTower(size: 20)
+                         Text("Open Oura").font(Obs.serif(22)).foregroundStyle(Obs.ink)
+                         Text("beta").font(Obs.mono(9, .medium)).tracking(1.2).foregroundStyle(Obs.muted)
+                         Spacer()
++                        Button { showNightCurve = true } label: {
++                            Image(systemName: "chart.xyaxis.line")
++                                .font(.system(size: 16, weight: .semibold))
++                                .foregroundStyle(Obs.vermilion)
++                        }
++                        .buttonStyle(.plain)
+                         Button { showProfile = true } label: {
+                             Image(systemName: "person.crop.circle")
+                                 .font(.system(size: 17)).foregroundStyle(Obs.ink2)
+--- a/apps/ios/OuraApp/project-ci.yml
++++ b/apps/ios/OuraApp/project-ci.yml
+@@ -47,6 +47,7 @@
+       - path: Reports.swift
+       - path: DayExport.swift
+       - path: RawData.swift
++      - path: NightCurve.swift
+       - path: ResearchExport.swift
+       - path: HeartRate.swift
+       - path: Theme.swift
+diff --git a/apps/ios/OuraApp/NightCurve.swift b/apps/ios/OuraApp/NightCurve.swift
+new file mode 100644
+--- /dev/null
++++ b/apps/ios/OuraApp/NightCurve.swift
+@@ -0,0 +1,450 @@
++import Foundation
++import SwiftUI
++
++// Full-night curves, one tap from the home screen.
++//
++// Why this exists: "Raw data & charts" makes you pick an event type, then pick a
++// field, and only loads the most recent 400 events — so a whole night never fits
++// on screen and there is no way to read a value at a point in time. Here the
++// whole night is loaded up front, metrics are one tap away, pinch/step zoom widens
++// the plot inside a horizontal scroller, and dragging shows a value cursor.
++//
++// Data comes from the same `RawData.load` / `RawData.points` used by the raw-data
++// screen, so no new database or FFI surface is introduced.
++
++enum NightMetric: String, CaseIterable, Identifiable {
++    case spo2, heartRate, hrv, temperature
++
++    var id: String { rawValue }
++
++    var title: String {
++        switch self {
++        case .spo2: return "血氧"
++        case .heartRate: return "心率"
++        case .hrv: return "HRV"
++        case .temperature: return "皮温"
++        }
++    }
++    var event: String {
++        switch self {
++        case .spo2: return "spo2_event"
++        case .heartRate: return "ibi_and_amplitude_event"
++        case .hrv: return "hrv_event"
++        case .temperature: return "temp_event"
++        }
++    }
++    var field: String {
++        switch self {
++        case .spo2: return "spo2_percent"
++        case .heartRate: return "hr_bpm"
++        case .hrv: return "rmssd_ms"
++        case .temperature: return "temps_c"
++        }
++    }
++    var unit: String {
++        switch self {
++        case .spo2: return "%"
++        case .heartRate: return "bpm"
++        case .hrv: return "ms"
++        case .temperature: return "°C"
++        }
++    }
++    /// Events to ask the store for. Large enough for one whole night, small
++    /// enough that JSON decoding stays quick on a phone.
++    var eventLimit: UInt32 {
++        switch self {
++        case .spo2: return 20000
++        case .heartRate: return 9000
++        case .hrv: return 4000
++        case .temperature: return 12000
++        }
++    }
++    var color: Color {
++        switch self {
++        case .spo2: return Obs.vermilion
++        case .heartRate: return Obs.alert
++        case .hrv: return Obs.glaze
++        case .temperature: return Obs.gold
++        }
++    }
++    /// Dashed reference line. Only SpO2 has a clinically meaningful threshold.
++    var guide: Double? { self == .spo2 ? 90 : nil }
++    var fixedFloor: Double? { self == .spo2 ? 85 : nil }
++    var decimals: Int { self == .temperature ? 1 : 0 }
++}
++
++struct NightCurveView: View {
++    @Environment(\.dismiss) private var dismiss
++
++    struct NightSlice: Identifiable {
++        let id: String
++        let label: String
++        let points: [RawData.Point]
++    }
++
++    @State private var metric: NightMetric = .spo2
++    @State private var nights: [NightSlice] = []
++    @State private var nightIndex = 0
++    @State private var zoom: CGFloat = 1
++    @State private var cursor: CGFloat? = nil      // 0...1 along the whole night
++    @State private var loading = true
++
++    private var current: NightSlice? {
++        nightIndex >= 0 && nightIndex < nights.count ? nights[nightIndex] : nil
++    }
++
++    var body: some View {
++        ZStack(alignment: .top) {
++            Obs.canvas
++            GeometryReader { geo in
++                ScrollView(.vertical, showsIndicators: false) {
++                    content(width: max(geo.size.width - 32, 120))
++                }
++            }
++        }
++        .task { load() }
++        .onChange(of: metric) { _, _ in load() }
++    }
++
++    private func content(width: CGFloat) -> some View {
++        VStack(alignment: .leading, spacing: 14) {
++            header
++            metricPicker
++            nightBar
++            if loading {
++                HStack(spacing: 10) {
++                    ProgressView().tint(Obs.vermilion)
++                    Text("读取整夜数据…").font(Obs.mono(12)).foregroundStyle(Obs.ink2)
++                }
++                .frame(height: 250).frame(maxWidth: .infinity, alignment: .leading)
++            } else if let n = current {
++                statsBar(n)
++                chartBlock(n, width: width)
++                zoomBar
++                hint
++            } else {
++                Text("这一夜没有 \(metric.title) 数据").font(Obs.prose(13))
++                    .foregroundStyle(Obs.ink2)
++                    .frame(height: 250).frame(maxWidth: .infinity, alignment: .leading)
++            }
++            Spacer(minLength: 24)
++        }
++        .padding(16)
++    }
++
++    // MARK: - chrome
++
++    private var header: some View {
++        HStack(spacing: 10) {
++            ObsBellTower(size: 26)
++            VStack(alignment: .leading, spacing: 1) {
++                Text("全夜曲线").font(Obs.serif(20, .semibold)).foregroundStyle(Obs.ink)
++                Text("FULL NIGHT SIGNALS").font(Obs.mono(9, .medium))
++                    .tracking(1.4).foregroundStyle(Obs.muted)
++            }
++            Spacer()
++            Button { dismiss() } label: {
++                Image(systemName: "xmark.circle.fill")
++                    .font(.system(size: 24))
++                    .foregroundStyle(Obs.muted)
++            }
++            .buttonStyle(.plain)
++        }
++    }
++
++    private var metricPicker: some View {
++        HStack(spacing: 8) {
++            ForEach(NightMetric.allCases) { m in
++                Button {
++                    metric = m
++                } label: {
++                    Text(m.title)
++                        .font(Obs.mono(12, metric == m ? .bold : .medium))
++                        .foregroundStyle(metric == m ? Color.white : Obs.ink2)
++                        .padding(.horizontal, 14).padding(.vertical, 8)
++                        .background(metric == m ? Obs.vermilion : Obs.paper,
++                                    in: Capsule())
++                        .overlay(Capsule().strokeBorder(
++                            metric == m ? Obs.vermilion.opacity(0.6) : Obs.rule,
++                            lineWidth: 1))
++                }
++                .buttonStyle(.plain)
++            }
++        }
++    }
++
++    private var nightBar: some View {
++        HStack(spacing: 12) {
++            Button {
++                if nightIndex < nights.count - 1 { nightIndex += 1; cursor = nil }
++            } label: {
++                Image(systemName: "chevron.left").font(.system(size: 15, weight: .semibold))
++                    .foregroundStyle(nightIndex < nights.count - 1 ? Obs.glaze : Obs.muted)
++                    .frame(width: 38, height: 34)
++            }
++            .buttonStyle(.plain)
++            Spacer()
++            VStack(spacing: 1) {
++                Text(current?.label ?? "—")
++                    .font(Obs.mono(13, .semibold)).foregroundStyle(Obs.ink)
++                Text("第 \(nights.count - nightIndex) / \(nights.count) 夜 · \(current?.points.count ?? 0) 点")
++                    .font(Obs.mono(9)).foregroundStyle(Obs.muted)
++            }
++            Spacer()
++            Button {
++                if nightIndex > 0 { nightIndex -= 1; cursor = nil }
++            } label: {
++                Image(systemName: "chevron.right").font(.system(size: 15, weight: .semibold))
++                    .foregroundStyle(nightIndex > 0 ? Obs.glaze : Obs.muted)
++                    .frame(width: 38, height: 34)
++            }
++            .buttonStyle(.plain)
++        }
++        .padding(.vertical, 4)
++        .background(Obs.paper, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
++    }
++
++    private func statsBar(_ n: NightSlice) -> some View {
++        let vals = n.points.map(\.v)
++        let mean = vals.isEmpty ? 0 : vals.reduce(0, +) / Double(vals.count)
++        let low = vals.min() ?? 0
++        let high = vals.max() ?? 0
++        let below = metric.guide.map { g in vals.filter { $0 < g }.count } ?? 0
++        return HStack(spacing: 0) {
++            statCell("均值", fmtNum(mean), Obs.vermilion)
++            statCell("最低", fmtNum(low), Obs.alert)
++            statCell("最高", fmtNum(high), Obs.glaze)
++            if let g = metric.guide {
++                let pct = vals.isEmpty ? 0 : 100 * Double(below) / Double(vals.count)
++                statCell(String(format: "<%.0f%%", g), String(format: "%.1f%%", pct), Obs.muted)
++            }
++        }
++        .padding(.vertical, 8)
++        .background(Obs.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
++        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
++            .strokeBorder(Obs.rule, lineWidth: 1))
++    }
++
++    private func statCell(_ label: String, _ value: String, _ tint: Color) -> some View {
++        VStack(spacing: 3) {
++            Text(label).font(Obs.mono(9)).foregroundStyle(Obs.muted)
++            Text(value).font(Obs.mono(14, .bold)).foregroundStyle(tint).monospacedDigit()
++        }
++        .frame(maxWidth: .infinity)
++    }
++
++    private var zoomBar: some View {
++        HStack(spacing: 8) {
++            Text("缩放").font(Obs.mono(10)).foregroundStyle(Obs.muted)
++            ForEach([CGFloat(1), CGFloat(2), CGFloat(4), CGFloat(8)], id: \.self) { z in
++                Button {
++                    zoom = z
++                    cursor = nil
++                } label: {
++                    Text("\(Int(z))×")
++                        .font(Obs.mono(11, zoom == z ? .bold : .medium))
++                        .foregroundStyle(zoom == z ? Color.white : Obs.ink2)
++                        .padding(.horizontal, 11).padding(.vertical, 6)
++                        .background(zoom == z ? Obs.glaze : Obs.paper, in: Capsule())
++                        .overlay(Capsule().strokeBorder(
++                            zoom == z ? Obs.glaze : Obs.rule, lineWidth: 1))
++                }
++                .buttonStyle(.plain)
++            }
++            Spacer()
++            Text("横滑看细节").font(Obs.mono(9)).foregroundStyle(Obs.muted)
++        }
++    }
++
++    private var hint: some View {
++        Text("点按或拖动曲线可读取该时刻数值；血氧虚线为 90% 参考线，>100% 是固件毛刺。")
++            .font(Obs.prose(11)).foregroundStyle(Obs.muted)
++            .fixedSize(horizontal: false, vertical: true)
++    }
++
++    // MARK: - plot
++
++    private func chartBlock(_ n: NightSlice, width: CGFloat) -> some View {
++        let chartW = width * zoom
++        return VStack(alignment: .leading, spacing: 6) {
++            ScrollView(.horizontal, showsIndicators: true) {
++                ZStack(alignment: .topLeading) {
++                    curve(n.points, width: chartW, height: 240)
++                    if let c = cursor {
++                        cursorMark(c, n.points, width: chartW, height: 240)
++                    }
++                }
++                .frame(width: chartW, height: 240)
++                .contentShape(Rectangle())
++                .simultaneousGesture(
++                    DragGesture(minimumDistance: 0)
++                        .onChanged { v in
++                            cursor = min(max(v.location.x / chartW, 0), 1)
++                        }
++                )
++            }
++            .frame(height: 240)
++            timeline(n.points, width: width)
++        }
++    }
++
++    private func curve(_ points: [RawData.Point], width: CGFloat, height: CGFloat) -> some View {
++        Canvas { ctx, size in
++            guard points.count > 1 else { return }
++            let t0 = points.first!.t
++            let t1 = points.last!.t
++            let span = max(t1 - t0, 1)
++            var lo = points.map(\.v).min()!
++            var hi = points.map(\.v).max()!
++            if let f = metric.fixedFloor { lo = min(lo, f) }
++            let pad = max((hi - lo) * 0.12, 0.5)
++            lo -= pad
++            hi += pad
++            let ySpan = max(hi - lo, 0.001)
++            let inset: CGFloat = 10
++            let w = max(size.width - inset * 2, 1)
++            let h = max(size.height - inset * 2, 1)
++
++            func place(_ p: RawData.Point) -> CGPoint {
++                CGPoint(x: inset + w * CGFloat((p.t - t0) / span),
++                        y: inset + h * (1 - CGFloat((p.v - lo) / ySpan)))
++            }
++
++            for i in 0...4 {
++                let y = inset + h * CGFloat(i) / 4
++                var g = Path()
++                g.move(to: CGPoint(x: inset, y: y))
++                g.addLine(to: CGPoint(x: size.width - inset, y: y))
++                ctx.stroke(g, with: .color(Obs.rule),
++                           style: StrokeStyle(lineWidth: 0.6))
++            }
++            if let g = metric.guide, g > lo, g < hi {
++                let y = inset + h * (1 - CGFloat((g - lo) / ySpan))
++                var gPath = Path()
++                gPath.move(to: CGPoint(x: inset, y: y))
++                gPath.addLine(to: CGPoint(x: size.width - inset, y: y))
++                ctx.stroke(gPath, with: .color(Obs.alert.opacity(0.6)),
++                           style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
++            }
++
++            var line = Path()
++            line.move(to: place(points[0]))
++            for p in points.dropFirst() { line.addLine(to: place(p)) }
++            var fill = line
++            let lastX = place(points[points.count - 1]).x
++            let firstX = place(points[0]).x
++            fill.addLine(to: CGPoint(x: lastX, y: size.height - inset))
++            fill.addLine(to: CGPoint(x: firstX, y: size.height - inset))
++            fill.closeSubpath()
++            ctx.fill(fill, with: .color(metric.color.opacity(0.14)))
++            ctx.stroke(line, with: .color(metric.color),
++                       style: StrokeStyle(lineWidth: 1.4, lineJoin: .round))
++
++            ctx.draw(Text(fmtNum(hi)).font(Obs.mono(9)).foregroundColor(Obs.muted),
++                     at: CGPoint(x: inset + 2, y: 8), anchor: .leading)
++            ctx.draw(Text(fmtNum(lo)).font(Obs.mono(9)).foregroundColor(Obs.muted),
++                     at: CGPoint(x: inset + 2, y: size.height - 8), anchor: .leading)
++        }
++        .frame(width: width, height: height)
++        .background(Obs.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
++        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
++            .strokeBorder(Obs.vermilion.opacity(0.35), lineWidth: 1))
++    }
++
++    private func cursorMark(_ frac: CGFloat, _ points: [RawData.Point],
++                            width: CGFloat, height: CGFloat) -> some View {
++        let x = frac * width
++        let idx = min(points.count - 1, max(0, Int(frac * Double(points.count - 1))))
++        let p = points[idx]
++        return ZStack(alignment: .topLeading) {
++            Rectangle().fill(Obs.glaze.opacity(0.7))
++                .frame(width: 1, height: height)
++                .offset(x: x, y: 0)
++            Circle().fill(metric.color).frame(width: 8, height: 8)
++                .offset(x: x - 4, y: height * 0.5 - 4)
++            VStack(alignment: .leading, spacing: 2) {
++                Text(fmtNum(p.v) + " " + metric.unit)
++                    .font(Obs.mono(13, .bold)).foregroundStyle(Obs.ink)
++                Text(clock(p.t)).font(Obs.mono(10)).foregroundStyle(Obs.ink2)
++            }
++            .padding(.horizontal, 9).padding(.vertical, 6)
++            .background(Obs.paper, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
++            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
++                .strokeBorder(Obs.vermilion.opacity(0.6), lineWidth: 1))
++            .offset(x: min(max(x + 8, 4), max(width - 112, 4)), y: 8)
++        }
++        .frame(width: width, height: height, alignment: .topLeading)
++        .allowsHitTesting(false)
++    }
++
++    private func timeline(_ points: [RawData.Point], width: CGFloat) -> some View {
++        HStack {
++            if let a = points.first { Text(clock(a.t)).font(Obs.mono(9)).foregroundStyle(Obs.muted) }
++            Spacer()
++            if let b = points.last { Text(clock(b.t)).font(Obs.mono(9)).foregroundStyle(Obs.muted) }
++        }
++        .frame(width: width)
++    }
++
++    // MARK: - data
++
++    private func load() {
++        loading = true
++        cursor = nil
++        zoom = 1
++        let page = RawData.load(filter: metric.event, limit: metric.eventLimit)
++        let pts = RawData.points(page.events, field: metric.field, maxPoints: 4000)
++        nights = splitNights(pts)
++        nightIndex = 0
++        loading = false
++    }
++
++    /// Group samples by "night": anything before local noon belongs to the
++    /// previous calendar day, so 00:05 and 06:27 land in the same night.
++    private func splitNights(_ pts: [RawData.Point]) -> [NightSlice] {
++        let cal = Calendar.current
++        var groups: [String: [RawData.Point]] = [:]
++        for p in pts where p.t > 0 {
++            let d = Date(timeIntervalSince1970: p.t)
++            let c = cal.dateComponents([.year, .month, .day, .hour], from: d)
++            var day = cal.date(from: DateComponents(year: c.year, month: c.month, day: c.day)) ?? d
++            if (c.hour ?? 12) < 12 {
++                day = cal.date(byAdding: .day, value: -1, to: day) ?? day
++            }
++            let k = dayKey(day)
++            groups[k, default: []].append(p)
++        }
++        return groups.keys.sorted(by: >).map { k in
++            NightSlice(id: k, label: nightLabel(k),
++                       points: (groups[k] ?? []).sorted { $0.t < $1.t })
++        }
++    }
++
++    private func dayKey(_ d: Date) -> String {
++        let f = DateFormatter()
++        f.dateFormat = "yyyy-MM-dd"
++        return f.string(from: d)
++    }
++
++    private func nightLabel(_ key: String) -> String {
++        let f = DateFormatter()
++        f.dateFormat = "yyyy-MM-dd"
++        guard let d = f.date(from: key) else { return key }
++        let out = DateFormatter()
++        out.locale = Locale(identifier: "zh_CN")
++        out.dateFormat = "M月d日 EEEE 夜"
++        return out.string(from: d)
++    }
++
++    private func clock(_ t: Double) -> String {
++        let f = DateFormatter()
++        f.dateFormat = "HH:mm"
++        return f.string(from: Date(timeIntervalSince1970: t))
++    }
++
++    private func fmtNum(_ v: Double) -> String {
++        metric.decimals == 0
++            ? String(Int(v.rounded()))
++            : String(format: "%.1f", v)
++    }
++}
