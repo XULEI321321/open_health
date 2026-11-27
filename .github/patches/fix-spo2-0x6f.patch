@@ -168,23 +168,22 @@
      @State private var file: URL?
 --- a/apps/ios/OuraApp/Theme.swift
 +++ b/apps/ios/OuraApp/Theme.swift
-@@ -1,9 +1,12 @@
-+import Foundation
+@@ -1,9 +1,11 @@
  import SwiftUI
  import UIKit
  
 -// thomas.md Quiet Ink: warm paper, serif titles, sans UI, mono numbers.
 -// Color is semantic, not decorative: gray when nothing is going on, green when
 -// something is genuinely good, orange/red when there is a problem.
-+// Xi'an Bell Tower (night / dark mode) and Tianjin Eye (day / light mode).
-+//
-+// The two skylines are drawn entirely in code with Canvas + Path: no image
-+// asset, no third-party artwork, no logo. They sit behind the data as a faint
-+// watermark, so readability and the health colour semantics are unchanged.
++// Backdrop: real photographs of Tianjin Eye (day / light mode) and Xi'an Bell
++// Tower (night / dark mode). The two photos sit behind the data as a soft,
++// slowly breathing layer; switching appearance cross-fades them.
++// Photos are bundle resources (`city_day.jpg`, `city_night.jpg`). If either is
++// missing the view falls back to the plain paper/dusk wash — no crash.
  
  enum Obs {
      private static func adaptive(light: UInt32, dark: UInt32) -> Color {
-@@ -17,21 +20,27 @@
+@@ -17,21 +19,25 @@
          })
      }
  
@@ -203,7 +202,6 @@
 -    static let alert = adaptive(light: 0xc4472c, dark: 0xe06a4f)
 -
 -    // Back-compat names. `teal` is the quiet chart color; `yellow` is a problem.
-+    // Rice paper / night ink.
 +    static let paper = adaptive(light: 0xfaf4e6, dark: 0x141b24)
 +    static let ink = adaptive(light: 0x2b2f36, dark: 0xf2ead9)
 +    static let ink2 = adaptive(light: 0x5b626b, dark: 0xc3c9cf)
@@ -211,7 +209,6 @@
 +    static let link = adaptive(light: 0x2e5a50, dark: 0x7fb8a8)
 +    static let rule = adaptive(light: 0xe4d9bf, dark: 0x2c3640)
 +
-+    // Bell Tower: vermilion wood, grey brick, green glaze, gilt finial, dusk.
 +    static let vermilion = adaptive(light: 0xb23a2e, dark: 0xe0705e)
 +    static let brick = adaptive(light: 0x6b6257, dark: 0xa79a88)
 +    static let glaze = adaptive(light: 0x2e5a50, dark: 0x4f8c7d)
@@ -227,7 +224,7 @@
      static var teal: Color { chart }
      static var yellow: Color { bad }
      static var warn: Color { bad }
-@@ -40,19 +49,23 @@
+@@ -40,19 +46,21 @@
      static var baseLow: Color { paper }
      static var trace: Color { rule }
  
@@ -239,8 +236,6 @@
 -    static let light = adaptive(light: 0x6da7ec, dark: 0x9ec5f4)
 -    static let rem = adaptive(light: 0x1baf7a, dark: 0x2ec48c)
 -    static let wake = adaptive(light: 0xeda100, dark: 0xeda100)
-+    /// The app backdrop: a paper/dusk wash plus the skyline that matches the
-+    /// current appearance. Light = Tianjin Eye by day, dark = Bell Tower at night.
 +    static var canvas: some View { ObsBackdrop() }
 +
 +    static var aura: LinearGradient {
@@ -260,14 +255,15 @@
      static func tone(delta: Double?, goodWhenPositive: Bool = true, threshold: Double = 8) -> Color {
          guard let d = delta else { return chart }
          let isGood = d >= 0 ? goodWhenPositive : !goodWhenPositive
-@@ -81,6 +94,184 @@
+@@ -81,6 +89,75 @@
      }
  }
  
-+// MARK: - Backdrop
++// MARK: - Animated photo backdrop
 +
 +struct ObsBackdrop: View {
 +    @Environment(\.colorScheme) private var scheme
++    @State private var breathing = false
 +
 +    var body: some View {
 +        ZStack(alignment: .bottom) {
@@ -276,140 +272,30 @@
 +                    ? [Obs.paper, Obs.dusk.opacity(0.16), Obs.gold.opacity(0.05)]
 +                    : [Obs.paper, Obs.dusk.opacity(0.10), Obs.gold.opacity(0.06)],
 +                startPoint: .top, endPoint: .bottom)
-+            Group {
-+                if scheme == .dark { BellTowerNight() } else { TianjinEyeDay() }
-+            }
-+            .opacity(scheme == .dark ? 0.46 : 0.24)
-+            .allowsHitTesting(false)
++            photoLayer("city_day", show: scheme == .light, strength: 0.34)
++            photoLayer("city_night", show: scheme == .dark, strength: 0.52)
 +        }
 +        .ignoresSafeArea()
++        .onAppear { breathing = true }
 +    }
-+}
 +
-+/// Tianjin Eye over the Yongle Bridge, in daylight. Drawn from primitives.
-+private struct TianjinEyeDay: View {
-+    var body: some View {
-+        Canvas { ctx, size in
-+            let w = size.width, h = size.height
-+            let cx = w * 0.62, cy = h * 0.70
-+            let r = min(w * 0.30, h * 0.20)
-+            let line = Obs.dusk.opacity(0.75)
-+            let glass = Obs.glaze.opacity(0.65)
-+
-+            // Hai River ripples.
-+            for i in 0..<6 {
-+                let y = h * 0.87 + CGFloat(i) * h * 0.021
-+                var p = Path()
-+                p.move(to: CGPoint(x: 0, y: y))
-+                p.addLine(to: CGPoint(x: w, y: y))
-+                ctx.stroke(p, with: .color(glass.opacity(0.30)),
-+                           style: StrokeStyle(lineWidth: 1))
-+            }
-+
-+            // Bridge deck and piers.
-+            var deck = Path()
-+            deck.move(to: CGPoint(x: 0, y: h * 0.845))
-+            deck.addLine(to: CGPoint(x: w, y: h * 0.845))
-+            ctx.stroke(deck, with: .color(line), style: StrokeStyle(lineWidth: 2))
-+            for px in [w * 0.16, w * 0.84] {
-+                var pier = Path()
-+                pier.move(to: CGPoint(x: px, y: h * 0.845))
-+                pier.addLine(to: CGPoint(x: px, y: h * 0.95))
-+                ctx.stroke(pier, with: .color(line), style: StrokeStyle(lineWidth: 3))
-+            }
-+
-+            // Wheel: double rim, spokes, cabins, hub.
-+            ctx.stroke(Path(ellipseIn: CGRect(x: cx - r, y: cy - r,
-+                                              width: r * 2, height: r * 2)),
-+                       with: .color(line), style: StrokeStyle(lineWidth: 2))
-+            ctx.stroke(Path(ellipseIn: CGRect(x: cx - r * 0.86, y: cy - r * 0.86,
-+                                              width: r * 1.72, height: r * 1.72)),
-+                       with: .color(glass), style: StrokeStyle(lineWidth: 1))
-+            let n = 24
-+            for i in 0..<n {
-+                let a = Double(i) * 2 * Double.pi / Double(n) - Double.pi / 2
-+                let ex = cx + CGFloat(cos(a)) * r
-+                let ey = cy + CGFloat(sin(a)) * r
-+                var spoke = Path()
-+                spoke.move(to: CGPoint(x: cx, y: cy))
-+                spoke.addLine(to: CGPoint(x: ex, y: ey))
-+                ctx.stroke(spoke, with: .color(glass.opacity(0.65)),
-+                           style: StrokeStyle(lineWidth: 0.8))
-+                ctx.fill(Path(ellipseIn: CGRect(x: ex - 2.4, y: ey - 2.4,
-+                                                width: 4.8, height: 4.8)),
-+                         with: .color(Obs.vermilion.opacity(0.75)))
-+            }
-+            ctx.fill(Path(ellipseIn: CGRect(x: cx - 5, y: cy - 5,
-+                                            width: 10, height: 10)),
-+                     with: .color(Obs.gold))
-+            for sgn in [-1, 1] {
-+                var leg = Path()
-+                leg.move(to: CGPoint(x: cx, y: cy))
-+                leg.addLine(to: CGPoint(x: cx + CGFloat(sgn) * r * 0.58, y: h * 0.845))
-+                ctx.stroke(leg, with: .color(line), style: StrokeStyle(lineWidth: 2))
++    private func photoLayer(_ name: String, show: Bool, strength: Double) -> some View {
++        Group {
++            if let url = Bundle.main.url(forResource: name, withExtension: "jpg"),
++               let ui = UIImage(contentsOfFile: url.path) {
++                Image(uiImage: ui)
++                    .resizable()
++                    .aspectRatio(contentMode: .fill)
++                    .scaleEffect(breathing ? 1.05 : 1.0)
++                    .offset(y: breathing ? -9 : 9)
++                    .opacity(show ? strength : 0)
++                    .animation(.easeInOut(duration: 0.9), value: show)
++                    .animation(.easeInOut(duration: 22).repeatForever(autoreverses: true),
++                               value: breathing)
 +            }
 +        }
-+    }
-+}
-+
-+/// Xi'an Bell Tower at night: three glazed eaves, brick base, gilt finial,
-+/// lit outline, moon and a few stars.
-+private struct BellTowerNight: View {
-+    var body: some View {
-+        Canvas { ctx, size in
-+            let w = size.width, h = size.height
-+            let cx = w * 0.50
-+
-+            ctx.fill(Path(ellipseIn: CGRect(x: w * 0.78, y: h * 0.14,
-+                                            width: 26, height: 26)),
-+                     with: .color(Obs.gold.opacity(0.9)))
-+            let stars: [(CGFloat, CGFloat)] = [
-+                (0.10, 0.13), (0.22, 0.22), (0.34, 0.11),
-+                (0.60, 0.20), (0.90, 0.28), (0.70, 0.09), (0.45, 0.17)
-+            ]
-+            for (fx, fy) in stars {
-+                ctx.fill(Path(ellipseIn: CGRect(x: w * fx, y: h * fy,
-+                                                width: 2.6, height: 2.6)),
-+                         with: .color(Obs.gold.opacity(0.8)))
-+            }
-+
-+            var ground = Path()
-+            ground.move(to: CGPoint(x: 0, y: h * 0.92))
-+            ground.addLine(to: CGPoint(x: w, y: h * 0.92))
-+            ctx.stroke(ground, with: .color(Obs.gold.opacity(0.35)),
-+                       style: StrokeStyle(lineWidth: 1.5))
-+
-+            var y = h * 0.92
-+            func rect(_ width: CGFloat, _ height: CGFloat, _ fill: Color) {
-+                var p = Path()
-+                p.addRect(CGRect(x: cx - width / 2, y: y - height,
-+                                 width: width, height: height))
-+                ctx.fill(p, with: .color(fill))
-+                y -= height
-+            }
-+            func eave(_ width: CGFloat, _ height: CGFloat) {
-+                var p = Path()
-+                p.move(to: CGPoint(x: cx - width / 2, y: y))
-+                p.addLine(to: CGPoint(x: cx - width * 0.36, y: y - height))
-+                p.addLine(to: CGPoint(x: cx + width * 0.36, y: y - height))
-+                p.addLine(to: CGPoint(x: cx + width / 2, y: y))
-+                p.closeSubpath()
-+                ctx.fill(p, with: .color(Obs.glaze))
-+                ctx.stroke(p, with: .color(Obs.gold.opacity(0.75)),
-+                           style: StrokeStyle(lineWidth: 1))
-+                y -= height
-+            }
-+
-+            rect(w * 0.60, h * 0.055, Obs.brick.opacity(0.92))
-+            eave(w * 0.96, h * 0.075)
-+            rect(w * 0.40, h * 0.055, Obs.vermilion.opacity(0.85))
-+            eave(w * 0.80, h * 0.070)
-+            rect(w * 0.29, h * 0.050, Obs.vermilion.opacity(0.85))
-+            eave(w * 0.62, h * 0.065)
-+            ctx.fill(Path(ellipseIn: CGRect(x: cx - 5, y: y - 11,
-+                                            width: 10, height: 10)),
-+                     with: .color(Obs.gold))
-+        }
++        .allowsHitTesting(false)
++        .clipped()
 +    }
 +}
 +
@@ -433,9 +319,9 @@
 +    private func eave(width: CGFloat, height: CGFloat) -> some View {
 +        Path { p in
 +            p.move(to: CGPoint(x: 0, y: height))
-+            p.line(to: CGPoint(x: width * 0.14, y: 0))
-+            p.line(to: CGPoint(x: width * 0.86, y: 0))
-+            p.line(to: CGPoint(x: width, y: height))
++            p.addLine(to: CGPoint(x: width * 0.14, y: 0))
++            p.addLine(to: CGPoint(x: width * 0.86, y: 0))
++            p.addLine(to: CGPoint(x: width, y: height))
 +            p.closeSubpath()
 +        }
 +        .fill(Obs.glaze)
@@ -445,7 +331,7 @@
  struct ObsTag: View {
      let text: String
      var icon: String? = nil
-@@ -88,19 +279,15 @@
+@@ -88,19 +165,15 @@
      var body: some View {
          HStack(spacing: 7) {
              if let icon {
@@ -472,7 +358,7 @@
  struct ObsRule: View {
      var body: some View {
          Rectangle().fill(Obs.rule).frame(height: 1)
-@@ -110,20 +297,26 @@
+@@ -110,20 +183,26 @@
  
  struct ObsCard: ViewModifier {
      var padding: CGFloat = 18
@@ -482,7 +368,7 @@
          content
              .padding(padding)
 -            .background(Obs.paper, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-+            .background(Obs.paper.opacity(0.94),
++            .background(Obs.paper.opacity(0.92),
 +                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
              .overlay(
                  RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -505,6 +391,15 @@
  }
 --- a/apps/ios/OuraApp/OuraApp.swift
 +++ b/apps/ios/OuraApp/OuraApp.swift
+@@ -200,7 +200,7 @@
+             guard verdict.lowercased().contains("ok") else {
+                 return "That file is not a healthy database (\(verdict)). Nothing changed."
+             }
+-        } catch { return "That file is not an Open Oura backup. Nothing changed." }
++        } catch { return "这不是小懒猫的备份文件，未做更改。" }
+ 
+         do {
+             try DB.resetWritableStore()
 @@ -808,6 +808,7 @@
      @State private var showSync = false
      @State private var showProfile = false
@@ -525,8 +420,9 @@
          ScrollView {
                  VStack(alignment: .leading, spacing: 20) {
                      HStack(alignment: .firstTextBaseline, spacing: 8) {
+-                        Text("Open Oura").font(Obs.serif(22)).foregroundStyle(Obs.ink)
 +                        ObsBellTower(size: 20)
-                         Text("Open Oura").font(Obs.serif(22)).foregroundStyle(Obs.ink)
++                        Text("小懒猫").font(Obs.serif(22)).foregroundStyle(Obs.ink)
                          Text("beta").font(Obs.mono(9, .medium)).tracking(1.2).foregroundStyle(Obs.muted)
                          Spacer()
 +                        Button { showNightCurve = true } label: {
@@ -538,6 +434,33 @@
                          Button { showProfile = true } label: {
                              Image(systemName: "person.crop.circle")
                                  .font(.system(size: 17)).foregroundStyle(Obs.ink2)
+@@ -1246,7 +1255,7 @@
+         let info = Bundle.main.infoDictionary
+         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+         let build = info?["CFBundleVersion"] as? String ?? "?"
+-        var out = "Open Oura \(short) (\(build)) · \(coreVersion())"
++        var out = "小懒猫 \(short) (\(build)) · \(coreVersion())"
+         if let prefix { out = prefix + " · " + out }
+         if let signed = Self.signedAt {
+             out += " · built \(Self.stampFormat.string(from: signed))"
+--- a/apps/ios/OuraApp/Info.plist
++++ b/apps/ios/OuraApp/Info.plist
+@@ -5,13 +5,13 @@
+ 	<key>CFBundleDevelopmentRegion</key>
+ 	<string>en</string>
+ 	<key>CFBundleDisplayName</key>
+-	<string>Open Oura</string>
++	<string>小懒猫</string>
+ 	<key>CFBundleExecutable</key>
+ 	<string>OuraApp</string>
+ 	<key>CFBundleIdentifier</key>
+ 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+ 	<key>CFBundleName</key>
+-	<string>Open Oura</string>
++	<string>小懒猫</string>
+ 	<key>CFBundlePackageType</key>
+ 	<string>APPL</string>
+ 	<key>CFBundleShortVersionString</key>
 --- a/apps/ios/OuraApp/project-ci.yml
 +++ b/apps/ios/OuraApp/project-ci.yml
 @@ -47,6 +47,7 @@
@@ -548,6 +471,15 @@
        - path: ResearchExport.swift
        - path: HeartRate.swift
        - path: Theme.swift
+@@ -62,6 +63,8 @@
+       - path: HealthExport.swift
+       - path: ../generated/oura_core.swift
+       - path: Assets.xcassets
++      - path: city_day.jpg
++      - path: city_night.jpg
+     dependencies:
+       - sdk: HealthKit.framework
+       - framework: ../OuraCore.xcframework
 diff --git a/apps/ios/OuraApp/NightCurve.swift b/apps/ios/OuraApp/NightCurve.swift
 new file mode 100644
 --- /dev/null
