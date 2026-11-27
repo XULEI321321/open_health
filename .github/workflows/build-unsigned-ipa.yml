@@ -1,0 +1,78 @@
+# .github/workflows/build-unsigned-ipa.yml
+# 在 GitHub 的 macOS 构建机上编出一个「未签名 IPA」，供 Sideloadly 本地签名。
+# 用法：fork 仓库 → 把本文件放进 .github/workflows/ → Actions 里手动 Run workflow
+#      → 下载 artifact 里的 .ipa → Sideloadly 签名装到 iPhone。
+#
+# 说明：用的是 project-ci.yml（model-free 目标）。已核对用户手上的
+#      OpenOura_副本.ipa：包内只有 4 个文件、14 MB 可执行文件、无 libtorch/.ptl，
+#      二进制里带 "model-free summary" / "NoModelRunner" —— 本来就是同一套 CI 产物。
+#      所以编出来的功能与现有 App 完全一致，不存在任何降级。
+# 前提：需先把 fix-spo2-0x6f.patch 放到 .github/patches/ 下。
+
+name: Build unsigned IPA (Sideloadly)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          brew install xcodegen
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+
+      - name: Apply SpO2 0x6f fix
+        run: |
+          if [ -f .github/patches/fix-spo2-0x6f.patch ]; then
+            git apply .github/patches/fix-spo2-0x6f.patch
+            echo "applied fix-spo2-0x6f.patch"
+          else
+            echo "no patch file; assuming fix already in source"
+          fi
+          grep -n '"spo2_event" if gen3_spo2' crates/oura-summary/src/lib.rs
+
+      - name: Build Rust xcframework (device + simulator)
+        run: bash apps/ios/build-xcframework.sh
+
+      - name: Generate model-free Xcode project
+        working-directory: apps/ios/OuraApp
+        run: xcodegen generate --spec project-ci.yml
+
+      - name: Archive without signing
+        working-directory: apps/ios/OuraApp
+        run: |
+          xcodebuild archive \
+            -project OuraApp.xcodeproj \
+            -scheme OuraApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/OuraApp.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            CODE_SIGN_ENTITLEMENTS=""
+
+      - name: Wrap as unsigned IPA
+        working-directory: apps/ios/OuraApp
+        run: |
+          mkdir -p build/Payload
+          cp -R build/OuraApp.xcarchive/Products/Applications/OuraApp.app build/Payload/
+          cd build
+          zip -qry OuraApp-unsigned.ipa Payload
+          ls -lh OuraApp-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OuraApp-unsigned-ipa
+          path: apps/ios/OuraApp/build/OuraApp-unsigned.ipa
+          if-no-files-found: error
